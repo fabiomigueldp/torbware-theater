@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
         isMaster: false,
         hls: null,
         syncInterval: null,
+        currentMovieId: null, // Para evitar recarregamentos desnecessários
     };
 
     // --- SELETORES DE ELEMENTOS DOM ---
@@ -90,11 +91,29 @@ document.addEventListener('DOMContentLoaded', () => {
             renderPartiesList(state.parties);
         });
         socket.on('party:update', (party) => {
+            const wasCurrentMovie = appState.currentParty?.currentMovie?.id;
+            const newCurrentMovie = party?.currentMovie?.id;
+            const isPlayerOpen = !DOMElements.player.modal.classList.contains('hidden');
+            
             appState.currentParty = party;
             appState.isMaster = party && party.master.id === socket.id;
             renderPartyUI();
+            
+            // Só abre o player se:
+            // 1. Há um filme atual E
+            // 2. (O player não está aberto OU é um filme diferente)
             if (party && party.currentMovie) {
-                openPlayer(party.currentMovie);
+                if (!isPlayerOpen || wasCurrentMovie !== newCurrentMovie) {
+                    console.log('Abrindo player devido a party update:', {
+                        wasOpen: isPlayerOpen,
+                        sameMovie: wasCurrentMovie === newCurrentMovie
+                    });
+                    openPlayer(party.currentMovie);
+                } else {
+                    console.log('Player já aberto com o mesmo filme, apenas reconfigurando...');
+                    // Apenas reconfigura o player sem recarregar o vídeo
+                    setupPlayerForParty();
+                }
             }
         });
         socket.on('party:sync', handlePartySync);
@@ -110,7 +129,11 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log('Ação recebida do mestre:', action);
         switch(action.type) {
             case 'PLAY':
-                video.play();
+                video.play().catch(err => {
+                    console.error('Erro ao tentar reproduzir:', err);
+                    // Tenta novamente após um breve delay
+                    setTimeout(() => video.play().catch(console.error), 500);
+                });
                 break;
             case 'PAUSE':
                 video.pause();
@@ -126,7 +149,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function handlePartySync(state) {
         const { video } = DOMElements.player;
-        if (appState.isMaster || !DOMElements.player.modal.classList.contains('hidden')) return;
+        if (appState.isMaster || DOMElements.player.modal.classList.contains('hidden')) return;
         
         const timeDifference = Math.abs(video.currentTime - state.currentTime);
 
@@ -134,7 +157,12 @@ document.addEventListener('DOMContentLoaded', () => {
             console.log(`Desincronizado por ${timeDifference.toFixed(2)}s. Corrigindo...`);
             video.currentTime = state.currentTime;
         }
-        if (video.paused && state.isPlaying) video.play();
+        if (video.paused && state.isPlaying) {
+            video.play().catch(err => {
+                console.error('Erro ao sincronizar reprodução:', err);
+                setTimeout(() => video.play().catch(console.error), 500);
+            });
+        }
         if (!video.paused && !state.isPlaying) video.pause();
     }
     
@@ -236,48 +264,141 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- LÓGICA DO PLAYER ---
     function openPlayer(movie) {
         const { modal, video, title } = DOMElements.player;
+        
+        console.log('openPlayer chamado:', {
+            movie: movie.title,
+            movieId: movie.id,
+            currentMovieId: appState.currentMovieId,
+            currentParty: appState.currentParty,
+            isMaster: appState.isMaster
+        });
+        
+        // Se já está tocando o mesmo filme, só reconfigura sem recarregar
+        if (appState.currentMovieId === movie.id && !modal.classList.contains('hidden')) {
+            console.log('Mesmo filme já está tocando, apenas reconfigurando...');
+            setupPlayerForParty();
+            return;
+        }
+        
         modal.classList.remove('hidden');
         title.textContent = movie.title;
+        appState.currentMovieId = movie.id;
 
         if (appState.isMaster && appState.currentParty?.currentMovie?.id !== movie.id) {
+            console.log('Mestre mudando filme para party');
             appState.socket.emit('party:action', { type: 'CHANGE_MOVIE', movie });
         }
         
         if (appState.hls) appState.hls.destroy();
         if (Hls.isSupported()) {
+            console.log('Usando HLS.js para carregar:', `/library/${movie.id}${movie.hls_playlist}`);
             appState.hls = new Hls();
             appState.hls.loadSource(`/library/${movie.id}${movie.hls_playlist}`);
             appState.hls.attachMedia(video);
+            
+            // Aguarda o HLS estar pronto antes de configurar a party
+            appState.hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                console.log('HLS manifest carregado');
+                setupPlayerForParty();
+            });
+            
+            // Tratamento de erros do HLS
+            appState.hls.on(Hls.Events.ERROR, (event, data) => {
+                console.error('Erro HLS:', data);
+                if (data.fatal) {
+                    switch(data.type) {
+                        case Hls.ErrorTypes.NETWORK_ERROR:
+                            console.log('Erro de rede, tentando recuperar...');
+                            appState.hls.startLoad();
+                            break;
+                        case Hls.ErrorTypes.MEDIA_ERROR:
+                            console.log('Erro de mídia, tentando recuperar...');
+                            appState.hls.recoverMediaError();
+                            break;
+                        default:
+                            console.log('Erro fatal, destruindo HLS');
+                            appState.hls.destroy();
+                            break;
+                    }
+                }
+            });
         } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            console.log('Usando player nativo para HLS:', `/library/${movie.id}${movie.hls_playlist}`);
             video.src = `/library/${movie.id}${movie.hls_playlist}`;
+            
+            // Aguarda o vídeo estar pronto para reprodução
+            video.addEventListener('loadeddata', () => {
+                console.log('Vídeo nativo carregado');
+                setupPlayerForParty();
+            }, { once: true });
         }
         
-        setupPlayerForParty();
+        // Fallback caso nenhum dos métodos acima funcione
+        setTimeout(() => {
+            console.log('Fallback timeout executado');
+            setupPlayerForParty();
+        }, 1000);
     }
     
     function setupPlayerForParty() {
         const { video } = DOMElements.player;
         
+        console.log('setupPlayerForParty chamado', {
+            currentParty: appState.currentParty,
+            isMaster: appState.isMaster,
+            videoCurrentTime: video.currentTime,
+            videoPaused: video.paused,
+            source: new Error().stack.split('\n')[1] // Para debug de onde foi chamado
+        });
+        
+        // Salva o estado atual do vídeo antes de reconfigurar
+        const wasPlaying = !video.paused;
+        const currentTime = video.currentTime;
+        
         // Limpa listeners antigos
         video.onplay = video.onpause = video.onseeked = null;
         clearInterval(appState.syncInterval);
         
+        // Remove todas as classes de modo
+        video.classList.remove('slave-mode', 'master-mode');
+        
         if (appState.currentParty) {
-            video.controls = !appState.isMaster;
-            video.classList.toggle('slave-mode', !appState.isMaster);
+            video.controls = appState.isMaster;
             
             if (appState.isMaster) {
-                video.onplay = () => appState.socket.emit('party:action', { type: 'PLAY' });
-                video.onpause = () => appState.socket.emit('party:action', { type: 'PAUSE' });
-                video.onseeked = () => appState.socket.emit('party:action', { type: 'SEEK', currentTime: video.currentTime });
+                video.classList.add('master-mode');
+                console.log('Configurado como MESTRE - controles habilitados');
+                
+                video.onplay = () => {
+                    console.log('Mestre iniciou reprodução');
+                    appState.socket.emit('party:action', { type: 'PLAY' });
+                };
+                video.onpause = () => {
+                    console.log('Mestre pausou reprodução');
+                    appState.socket.emit('party:action', { type: 'PAUSE' });
+                };
+                video.onseeked = () => {
+                    console.log('Mestre mudou posição para:', video.currentTime);
+                    appState.socket.emit('party:action', { type: 'SEEK', currentTime: video.currentTime });
+                };
                 
                 appState.syncInterval = setInterval(() => {
                     appState.socket.emit('party:sync', { isPlaying: !video.paused, currentTime: video.currentTime });
                 }, 1000);
+                
+                // Se estava tocando e agora é o mestre, continua tocando
+                if (wasPlaying && video.paused) {
+                    console.log('Retomando reprodução após promoção a mestre');
+                    video.play().catch(console.error);
+                }
+            } else {
+                video.classList.add('slave-mode');
+                console.log('Configurado como ESCRAVO - controles desabilitados');
             }
         } else {
             video.controls = true;
-            video.classList.remove('slave-mode');
+            video.classList.add('master-mode');
+            console.log('Sem party - controles habilitados');
         }
     }
 
@@ -286,6 +407,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (appState.hls) appState.hls.destroy();
         DOMElements.player.video.src = '';
         clearInterval(appState.syncInterval);
+        appState.currentMovieId = null;
     }
     
     // --- EVENT LISTENERS GERAIS ---
@@ -311,6 +433,27 @@ document.addEventListener('DOMContentLoaded', () => {
         };
         
         player.backButton.onclick = closePlayer;
+        
+        // Adiciona clique no vídeo para play/pause quando necessário
+        DOMElements.player.video.onclick = (e) => {
+            const { video } = DOMElements.player;
+            
+            // Só permite clique se não estiver em party como escravo
+            if (appState.currentParty && !appState.isMaster) {
+                console.log('Clique ignorado - usuário é escravo na party');
+                return;
+            }
+            
+            if (video.paused) {
+                console.log('Clique no vídeo - iniciando reprodução');
+                video.play().catch(err => {
+                    console.error('Erro ao reproduzir via clique:', err);
+                });
+            } else {
+                console.log('Clique no vídeo - pausando reprodução');
+                video.pause();
+            }
+        };
         
         party.createBtn.onclick = () => appState.socket.emit('party:create');
         party.leaveBtn.onclick = () => {

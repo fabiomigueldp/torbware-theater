@@ -100,9 +100,9 @@
 
     <div id="playerModal" class="hidden fixed inset-0 bg-black z-50 flex items-center justify-center">
         <video id="videoPlayer" class="w-full h-full object-contain"></video>
-        <div class="absolute inset-0" id="playerOverlay">
-            <button id="backButton" class="absolute top-6 left-6 z-20 p-3 bg-black/40 hover:bg-black/60 rounded-full transition-all"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg></button>
-            <h1 id="videoTitle" class="absolute top-6 left-24 font-bold text-xl bg-black/40 px-4 py-2 rounded-lg"></h1>
+        <div class="absolute inset-0 pointer-events-none" id="playerOverlay">
+            <button id="backButton" class="absolute top-6 left-6 z-20 p-3 bg-black/40 hover:bg-black/60 rounded-full transition-all pointer-events-auto"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg></button>
+            <h1 id="videoTitle" class="absolute top-6 left-24 font-bold text-xl bg-black/40 px-4 py-2 rounded-lg pointer-events-auto"></h1>
         </div>
     </div>
     

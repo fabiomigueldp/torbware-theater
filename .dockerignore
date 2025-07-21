@@ -1,0 +1,16 @@
+# Ignorar dependências do Node e Python locais
+node_modules
+server/node_modules
+worker/__pycache__
+worker/.venv
+worker/venv
+
+# Ignorar pastas de mídia e temporárias
+library
+tmp
+
+# Ignorar arquivos de ambiente e de IDE
+.env
+server/.env
+worker/.env
+.vscode

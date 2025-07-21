@@ -34,3 +34,8 @@ body {
 .slave-mode {
     pointer-events: none;
 }
+
+/* Garante que mestres sempre tenham controles e interação */
+.master-mode {
+    pointer-events: auto !important;
+}

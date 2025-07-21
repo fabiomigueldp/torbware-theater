@@ -5,11 +5,9 @@ const path = require('path');
 
 const router = express.Router();
 
-// Caminho para a library (relativo à raiz do projeto)
 const libraryPath = path.join(process.cwd(), 'library');
 
 module.exports = (io) => {
-  // Rota para adicionar um novo filme
   router.post('/movies', (req, res) => {
     const { magnetLink } = req.body;
     if (!magnetLink) {
@@ -19,22 +17,24 @@ module.exports = (io) => {
     const jobId = `job_${Date.now()}`;
     console.log(`Iniciando novo job [${jobId}]`);
 
-    // Invoca o worker Python (para ambiente local)
+    // --- CORREÇÃO CRÍTICA ---
+    // Usamos 'host.docker.internal' para que o contêiner possa se comunicar de volta com o host.
+    const apiUrl = `http://host.docker.internal:${process.env.PORT || 3000}/api/jobs`;
+
     const workerProcess = spawn('python', [
-        process.env.PYTHON_WORKER_PATH || 'worker/main.py',
+        'worker/main.py', // Caminho relativo ao WORKDIR /app
         '--magnet', magnetLink,
         '--job-id', jobId,
-        '--api-url', `http://localhost:${process.env.PORT || 3000}/api/jobs`
+        '--api-url', apiUrl
     ]);
 
-    workerProcess.stdout.on('data', (data) => console.log(`[Worker STDOUT ${jobId}]: ${data.toString()}`));
-    workerProcess.stderr.on('data', (data) => console.error(`[Worker STDERR ${jobId}]: ${data.toString()}`));
+    workerProcess.stdout.on('data', (data) => console.log(`[Worker STDOUT ${jobId}]: ${data.toString().trim()}`));
+    workerProcess.stderr.on('data', (data) => console.error(`[Worker STDERR ${jobId}]: ${data.toString().trim()}`));
 
     io.emit('job_update', { id: jobId, status: 'Na fila' });
     res.status(202).json({ message: 'Job iniciado', jobId });
   });
 
-  // Rota para o worker Python atualizar o status
   router.post('/jobs/:id/status', (req, res) => {
     const { id } = req.params;
     const { status, progress, message } = req.body;
@@ -44,7 +44,6 @@ module.exports = (io) => {
     res.sendStatus(200);
   });
 
-  // Rota para listar a library de filmes
   router.get('/library', async (req, res) => {
     try {
         const movieFolders = await fs.readdir(libraryPath);
@@ -58,7 +57,8 @@ module.exports = (io) => {
         }
         res.json(moviesData.sort((a, b) => a.title.localeCompare(b.title)));
     } catch (error) {
-        if (error.code === 'ENOENT') { // A pasta library ainda não existe
+        if (error.code === 'ENOENT') {
+            await fs.mkdir(libraryPath, { recursive: true });
             return res.json([]);
         }
         res.status(500).json({ error: "Não foi possível carregar a library" });

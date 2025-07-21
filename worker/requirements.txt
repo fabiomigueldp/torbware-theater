@@ -3,3 +3,7 @@ python-magic
 patool
 python-dotenv
 tmdbv3api
+subliminal
+pysrt
+chardet
+ffsubsync
