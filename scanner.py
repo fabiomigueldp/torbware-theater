@@ -20,12 +20,21 @@ IGNORED_DIRECTORIES = (
     '__pycache__', 'node_modules', '.git', '.vscode', '.idea', 'venv',
     'db', 'incremental_db', 'simulation', 'greybox_tmp', 'hc_output', 
     'output_files', 'work', 'modelsim_lib', 'questa_lib', 'transcript',
+    # Theater application specific directories
+    'library',      # Diretório onde ficam os filmes processados
+    'tmp',          # Diretório temporário de processamento
+    'worker/__pycache__',  # Cache Python do worker
     # Custom ignored directories - add your own here
     'F1', 'F2'  # Ignore F1 and F2 directories and all their contents
 )
 
 # Files to ignore (specific filenames that will be excluded from scanning)
 IGNORED_FILES = (
+    # Theater application specific files
+    'package-lock.json',    # Lock file do npm (muito grande)
+    'metadata.json',        # Metadados dos filmes (gerados automaticamente)
+    'test_filename_clean.py',  # Script de teste temporário
+    'test_codec_detection.py', # Script de teste temporário
     # Custom ignored files - add your own here
     'teoria.md'  # Ignore teoria.md file
 )

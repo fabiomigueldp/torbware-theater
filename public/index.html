@@ -103,6 +103,24 @@
         <div class="absolute inset-0 pointer-events-none" id="playerOverlay">
             <button id="backButton" class="absolute top-6 left-6 z-20 p-3 bg-black/40 hover:bg-black/60 rounded-full transition-all pointer-events-auto"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg></button>
             <h1 id="videoTitle" class="absolute top-6 left-24 font-bold text-xl bg-black/40 px-4 py-2 rounded-lg pointer-events-auto"></h1>
+            
+            <!-- Controle de Legendas -->
+            <div id="subtitleControl" class="absolute bottom-6 right-6 pointer-events-auto">
+                <button id="subtitleButton" class="p-3 bg-black/40 hover:bg-black/60 rounded-full transition-all mb-2">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4h10v2H7V4zm0 6h10v2H7v-2zm0 6h7v2H7v-2z"/>
+                        <rect x="2" y="3" width="20" height="18" rx="2" stroke="currentColor" stroke-width="2" fill="none"/>
+                    </svg>
+                </button>
+                <div id="subtitleMenu" class="hidden absolute bottom-full right-0 mb-2 bg-black/80 rounded-lg border border-gray-600 min-w-48">
+                    <div class="p-2">
+                        <h3 class="text-white font-semibold mb-2">Legendas</h3>
+                        <div id="subtitleOptions" class="space-y-1">
+                            <button class="subtitle-option w-full text-left px-3 py-2 text-white hover:bg-gray-700 rounded" data-lang="off">Desabilitado</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
     

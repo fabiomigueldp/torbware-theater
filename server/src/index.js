@@ -30,6 +30,17 @@ app.use(express.static(path.join(__dirname, '../../public')));
 app.use('/library', express.static(path.join(__dirname, '../../library')));
 app.use('/api', apiRoutes(io));
 
+// Middleware específico para servir legendas com headers corretos
+app.use('/api/subtitles', (req, res, next) => {
+    res.set({
+        'Content-Type': 'text/vtt; charset=utf-8',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, PUT, DELETE'
+    });
+    next();
+});
+
 // --- LÓGICA DE GERENCIAMENTO DE PARTIES ---
 io.on('connection', (socket) => {
     console.log(`Cliente conectado: ${socket.id}`);

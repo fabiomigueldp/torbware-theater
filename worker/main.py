@@ -9,6 +9,7 @@ import patoolib
 import re
 from tmdbv3api import TMDb, Movie, Search
 import config
+from subtitle_manager import download_and_process_subtitles
 
 # --- CONFIGURAÇÃO INICIAL ---
 if not config.TMDB_API_KEY:
@@ -50,16 +51,78 @@ def run_command(command):
     return process.returncode == 0
 
 def clean_filename_for_search(filename):
-    # Remove extensões e termos comuns de torrents
+    # Remove extensões e termos comuns de torrents para busca mais precisa
     name = os.path.splitext(filename)[0]
+    
+    # Padrões para remover (em ordem de prioridade)
     patterns = [
-        r'\b(1080p|720p|2160p|4k|brrip|bluray|dvdrip|webrip|web-dl|hdrip|x264|x265|h264|aac|dts)\b',
-        r'[\.\[\]\(\)-]', # Substitui ., [], (), - por espaços
-        r'\s+' # Substitui múltiplos espaços por um só
+        # Grupos de release e sites (incluindo variações entre colchetes)
+        r'\[.*?(yts|rarbg|1337x|kickass|torrentgalaxy|eztv|limetorrents).*?\]',
+        r'-\[?(yts|rarbg|1337x|kickass|torrentgalaxy|eztv|limetorrents)\]?',
+        r'\b(yts|ytsmx|yts\.mx|rarbg|1337x|kickass|torrentgalaxy|eztv|limetorrents)\b',
+        
+        # Qualidade e formatos de vídeo entre colchetes ou não
+        r'\[.*?(1080p|720p|2160p|4k|480p|brrip|bluray|blu-ray|dvdrip|webrip|web-dl|hdrip|hdtv).*?\]',
+        r'\b(1080p|720p|2160p|4k|480p|brrip|bluray|blu-ray|dvdrip|webrip|web-dl|hdrip|hdtv|hdcam|cam|ts|r5)\b',
+        
+        # Codecs e áudio entre colchetes ou não
+        r'\[.*?(x264|x265|h264|h265|aac|ac3|dts|5\.1|2\.0).*?\]',
+        r'\b(x264|x265|h264|h265|hevc|avc|aac|ac3|dts|dd5\.1|dd2\.0|ddp5\.1|atmos|truehd|flac|mp3)\b',
+        
+        # Outros termos técnicos e formatos
+        r'\b(extended|unrated|directors\.cut|remastered|remux|proper|real|repack|internal|limited|mp4|mkv|avi|mov)\b',
+        
+        # Grupos de release após hífens
+        r'-[A-Z0-9]+$',  # Remove grupos como -SPARKS, -DVSUX no final
+        
+        # Remove caracteres especiais e substitui por espaços
+        r'[\.\[\]\(\)_-]',
+        
+        # Remove múltiplos espaços
+        r'\s+'
     ]
-    for p in patterns:
-        name = re.sub(p, ' ', name, flags=re.IGNORECASE)
-    return name.strip()
+    
+    for pattern in patterns:
+        name = re.sub(pattern, ' ', name, flags=re.IGNORECASE)
+    
+    # Limpa espaços extras
+    cleaned = name.strip()
+    
+    # Se ficou muito curto ou apenas números, tentar extrair título e ano
+    if len(cleaned.split()) <= 1 or cleaned.isdigit():
+        # Fallback: tentar extrair título e ano do nome original
+        original = os.path.splitext(filename)[0]
+        year_match = re.search(r'\b(19|20)\d{2}\b', original)
+        if year_match:
+            year = year_match.group()
+            # Pegar tudo antes do ano como título
+            before_year = original[:year_match.start()].strip()
+            # Limpar apenas caracteres especiais do título
+            title = re.sub(r'[\.\[\]\(\)_-]', ' ', before_year)
+            title = re.sub(r'\s+', ' ', title).strip()
+            if title:
+                cleaned = f"{title} {year}"
+    
+    # Remove palavras muito curtas e ruído técnico restante
+    words = cleaned.split()
+    meaningful_words = []
+    for word in words:
+        # Manter anos (4 dígitos) e palavras significativas (3+ caracteres)
+        if (len(word) >= 3 or word.isdigit()) and not re.match(r'^(dv|mp4|mkv|avi)$', word, re.IGNORECASE):
+            # Excluir códigos técnicos específicos
+            if not re.match(r'^(ddp|dts|aac|ac3|h26[45]|x26[45])$', word, re.IGNORECASE):
+                meaningful_words.append(word)
+    
+    final_result = ' '.join(meaningful_words)
+    
+    # Se ainda restou muito pouco conteúdo, usar fallback mais simples
+    if len(final_result.split()) <= 1:
+        # Último fallback: apenas título até primeiro número ou termo técnico
+        simple_title = re.sub(r'\b\d{4}\b.*$', '', cleaned).strip()
+        if simple_title:
+            final_result = simple_title
+    
+    return final_result
 
 # --- PIPELINE ---
 def main():
@@ -223,27 +286,126 @@ def main():
             # Por simplicidade, vamos apenas pular a criação do arquivo. O frontend não vai quebrar.
             pass
             
-        # 5. Transcodificação
-        update_status(args.api_url, args.job_id, "Convertendo para HLS")
+        # 5. Download e Processamento de Legendas
+        update_status(args.api_url, args.job_id, "Baixando legendas", 70)
+        try:
+            def subtitle_progress_callback(message, progress=None):
+                update_status(args.api_url, args.job_id, message, progress)
+            
+            # Preparar informações do filme para o sistema de legendas
+            movie_info = {
+                'id': movie_id,
+                'title': title,
+                'release_date': release_date
+            }
+            
+            # Baixar e processar legendas
+            subtitle_info = download_and_process_subtitles(
+                movie_library_path, 
+                movie_info, 
+                subtitle_progress_callback
+            )
+            
+            print(f"Legendas processadas: {len(subtitle_info)} encontradas")
+            
+        except Exception as subtitle_error:
+            print(f"AVISO: Erro no processamento de legendas: {subtitle_error}")
+            subtitle_info = []  # Continua sem legendas se houver erro
+            
+        # 6. Conversão inteligente para HLS (copy quando possível, recodifica só quando necessário)
+        update_status(args.api_url, args.job_id, "Analisando formato do vídeo")
         hls_playlist = os.path.join(hls_dir, "playlist.m3u8")
         segment_path = os.path.join(hls_dir, "segment%03d.ts")
-        ffmpeg_cmd = (
-            f'ffmpeg -i "{video_file}" -y '
-            f'-c:a aac -ar 48000 -b:a 128k '
-            f'-c:v h264 -profile:v main -crf 23 -preset veryfast '
-            f'-hls_time 4 -hls_playlist_type vod '
-            f'-hls_segment_filename "{segment_path}" "{hls_playlist}"'
-        )
-        if not run_command(ffmpeg_cmd): raise Exception("Falha na transcodificação do vídeo.")
         
-        # 6. Salvar Metadados Finais
+        # Primeiro, analisar os codecs do arquivo de vídeo
+        probe_cmd = f'ffprobe -v quiet -print_format json -show_streams "{video_file}"'
+        probe_process = subprocess.run(probe_cmd, shell=True, capture_output=True, text=True)
+        
+        can_copy = False
+        if probe_process.returncode == 0:
+            try:
+                import json
+                probe_data = json.loads(probe_process.stdout)
+                
+                video_codec = None
+                audio_codec = None
+                video_profile = None
+                
+                for stream in probe_data.get('streams', []):
+                    if stream.get('codec_type') == 'video':
+                        video_codec = stream.get('codec_name', '').lower()
+                        video_profile = stream.get('profile', '').lower()
+                    elif stream.get('codec_type') == 'audio':
+                        audio_codec = stream.get('codec_name', '').lower()
+                
+                # Verificar se os codecs são compatíveis para copy
+                compatible_video = video_codec in ['h264', 'avc']
+                compatible_audio = audio_codec in ['aac', 'mp3']
+                
+                # H.264 profiles compatíveis com HLS
+                compatible_profile = True
+                if video_profile and 'high' in video_profile:
+                    # High profile pode ter problemas em alguns players
+                    print(f"AVISO: Profile H.264 High detectado ({video_profile}), pode ser necessária recodificação")
+                    compatible_profile = True  # Vamos tentar copy mesmo assim
+                
+                can_copy = compatible_video and compatible_audio and compatible_profile
+                
+                print(f"Codecs detectados: Vídeo={video_codec} ({video_profile}), Áudio={audio_codec}")
+                print(f"Compatível para segmentação rápida: {can_copy}")
+                
+            except Exception as probe_error:
+                print(f"AVISO: Erro ao analisar codecs: {probe_error}")
+                can_copy = False
+        
+        if can_copy:
+            # Segmentação rápida sem recodificação (copy)
+            update_status(args.api_url, args.job_id, "Segmentando vídeo (modo rápido)")
+            print("Usando modo de segmentação rápida (copy) - isso será muito mais rápido!")
+            ffmpeg_cmd = (
+                f'ffmpeg -i "{video_file}" -y '
+                f'-c copy '  # Copy streams sem recodificar
+                f'-hls_time 4 -hls_playlist_type vod '
+                f'-hls_segment_filename "{segment_path}" "{hls_playlist}"'
+            )
+            
+            # Tentar copy primeiro
+            if not run_command(ffmpeg_cmd):
+                print("AVISO: Segmentação rápida falhou, tentando recodificação...")
+                # Fallback para recodificação se copy falhar
+                update_status(args.api_url, args.job_id, "Recodificando vídeo (fallback)")
+                ffmpeg_cmd = (
+                    f'ffmpeg -i "{video_file}" -y '
+                    f'-c:a aac -ar 48000 -b:a 128k '
+                    f'-c:v h264 -profile:v main -crf 23 -preset veryfast '
+                    f'-hls_time 4 -hls_playlist_type vod '
+                    f'-hls_segment_filename "{segment_path}" "{hls_playlist}"'
+                )
+                if not run_command(ffmpeg_cmd): 
+                    raise Exception("Falha na conversão do vídeo para HLS.")
+        else:
+            # Recodificação completa para garantir compatibilidade
+            update_status(args.api_url, args.job_id, "Recodificando vídeo (necessário)")
+            print("Usando modo de recodificação completa")
+            ffmpeg_cmd = (
+                f'ffmpeg -i "{video_file}" -y '
+                f'-c:a aac -ar 48000 -b:a 128k '
+                f'-c:v h264 -profile:v main -crf 23 -preset veryfast '
+                f'-hls_time 4 -hls_playlist_type vod '
+                f'-hls_segment_filename "{segment_path}" "{hls_playlist}"'
+            )
+            if not run_command(ffmpeg_cmd): 
+                raise Exception("Falha na conversão do vídeo para HLS.")
+        
+        # 7. Salvar Metadados Finais
         metadata = {
             "id": movie_id,
             "title": title,
             "overview": overview,
             "release_date": release_date,
             "poster_path": "/poster.png",
-            "hls_playlist": "/hls/playlist.m3u8"
+            "hls_playlist": "/hls/playlist.m3u8",
+            "subtitles": subtitle_info  # Adiciona informações das legendas
         }
         with open(os.path.join(movie_library_path, "metadata.json"), 'w', encoding='utf-8') as f:
             import json

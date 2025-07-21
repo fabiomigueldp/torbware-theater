@@ -52,7 +52,14 @@ module.exports = (io) => {
             const metadataPath = path.join(libraryPath, folder, 'metadata.json');
             try {
                 const data = await fs.readFile(metadataPath, 'utf-8');
-                moviesData.push(JSON.parse(data));
+                const movieData = JSON.parse(data);
+                
+                // Garantir que subtitles existe mesmo em metadados antigos
+                if (!movieData.subtitles) {
+                    movieData.subtitles = [];
+                }
+                
+                moviesData.push(movieData);
             } catch (e) { /* Ignora pastas sem metadata ou o .gitkeep */ }
         }
         res.json(moviesData.sort((a, b) => a.title.localeCompare(b.title)));
@@ -62,6 +69,31 @@ module.exports = (io) => {
             return res.json([]);
         }
         res.status(500).json({ error: "Não foi possível carregar a library" });
+    }
+  });
+
+  // Rota específica para servir legendas
+  router.get('/subtitles/:movieId/:filename', async (req, res) => {
+    try {
+        const { movieId, filename } = req.params;
+        const subtitlePath = path.join(libraryPath, movieId, 'subtitles', filename);
+        
+        // Verificar se o arquivo existe e é um arquivo de legenda válido
+        if (!filename.endsWith('.vtt')) {
+            return res.status(400).json({ error: 'Formato de legenda inválido' });
+        }
+        
+        // Enviar arquivo com headers apropriados para WebVTT
+        res.set({
+            'Content-Type': 'text/vtt; charset=utf-8',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control',
+            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, PUT, DELETE'
+        });
+        
+        res.sendFile(subtitlePath);
+    } catch (error) {
+        res.status(404).json({ error: 'Legenda não encontrada' });
     }
   });
 

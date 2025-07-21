@@ -13,6 +13,13 @@ RUN sed -i 's/main/main contrib non-free/g' /etc/apt/sources.list && \
     ffmpeg \
     libmagic1 \
     unrar \
+    build-essential \
+    gcc \
+    g++ \
+    make \
+    python3-dev \
+    libffi-dev \
+    libssl-dev \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

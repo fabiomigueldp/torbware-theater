@@ -39,3 +39,35 @@ body {
 .master-mode {
     pointer-events: auto !important;
 }
+
+/* Estilos para menu de legendas */
+#subtitleMenu {
+    backdrop-filter: blur(10px);
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+#subtitleMenu::-webkit-scrollbar {
+    width: 4px;
+}
+
+#subtitleMenu::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+#subtitleMenu::-webkit-scrollbar-thumb {
+    background: #4a5568;
+    border-radius: 2px;
+}
+
+.subtitle-option {
+    transition: background-color 0.2s ease;
+}
+
+.subtitle-option:hover {
+    background-color: #374151 !important;
+}
+
+.subtitle-option.bg-blue-600:hover {
+    background-color: #2563eb !important;
+}

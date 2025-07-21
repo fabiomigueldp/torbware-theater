@@ -8,6 +8,8 @@ document.addEventListener('DOMContentLoaded', () => {
         hls: null,
         syncInterval: null,
         currentMovieId: null, // Para evitar recarregamentos desnecessários
+        currentSubtitles: [], // Legendas disponíveis do filme atual
+        activeSubtitle: null, // Legenda ativa atualmente
     };
 
     // --- SELETORES DE ELEMENTOS DOM ---
@@ -35,6 +37,9 @@ document.addEventListener('DOMContentLoaded', () => {
             video: document.getElementById('videoPlayer'),
             title: document.getElementById('videoTitle'),
             backButton: document.getElementById('backButton'),
+            subtitleButton: document.getElementById('subtitleButton'),
+            subtitleMenu: document.getElementById('subtitleMenu'),
+            subtitleOptions: document.getElementById('subtitleOptions'),
         },
         party: {
             panel: document.getElementById('partyPanel'),
@@ -143,6 +148,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 break;
             case 'CHANGE_MOVIE':
                 openPlayer(action.movie);
+                break;
+            case 'SUBTITLE_CHANGE':
+                if (action.subtitle) {
+                    setActiveSubtitle(action.subtitle);
+                } else {
+                    setActiveSubtitle({ language: 'off' });
+                }
                 break;
         }
     }
@@ -261,6 +273,108 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     
+    // --- LÓGICA DE LEGENDAS ---
+    function setupSubtitles(movie) {
+        const { video, subtitleButton, subtitleMenu, subtitleOptions } = DOMElements.player;
+        
+        appState.currentSubtitles = movie.subtitles || [];
+        
+        console.log('Configurando legendas:', appState.currentSubtitles);
+        
+        // Limpa opções existentes (mantém apenas "Desabilitado")
+        const existingOptions = subtitleOptions.querySelectorAll('.subtitle-option:not([data-lang="off"])');
+        existingOptions.forEach(option => option.remove());
+        
+        // Mostra/esconde botão de legendas baseado na disponibilidade
+        if (appState.currentSubtitles.length > 0) {
+            subtitleButton.style.display = 'block';
+            
+            // Adiciona opções de legenda disponíveis
+            appState.currentSubtitles.forEach(subtitle => {
+                const option = document.createElement('button');
+                option.className = 'subtitle-option w-full text-left px-3 py-2 text-white hover:bg-gray-700 rounded';
+                option.dataset.lang = subtitle.language;
+                option.dataset.url = `/api/subtitles/${movie.id}/${subtitle.file}`;
+                option.textContent = subtitle.name;
+                
+                option.onclick = () => setActiveSubtitle(subtitle);
+                subtitleOptions.appendChild(option);
+            });
+        } else {
+            subtitleButton.style.display = 'none';
+        }
+        
+        // Reset subtitle state
+        appState.activeSubtitle = null;
+        clearVideoSubtitles();
+    }
+    
+    function setActiveSubtitle(subtitle) {
+        const { video, subtitleMenu } = DOMElements.player;
+        
+        console.log('Ativando legenda:', subtitle);
+        
+        // Remove legendas existentes
+        clearVideoSubtitles();
+        
+        if (subtitle && subtitle.language !== 'off') {
+            // Adiciona nova track de legenda
+            const track = document.createElement('track');
+            track.kind = 'subtitles';
+            track.label = subtitle.name;
+            track.srclang = subtitle.language;
+            track.src = `/api/subtitles/${appState.currentMovieId}/${subtitle.file}`;
+            track.default = true;
+            
+            video.appendChild(track);
+            
+            // Ativa a track quando carregada
+            track.addEventListener('load', () => {
+                track.mode = 'showing';
+                console.log('Legenda carregada e ativada:', subtitle.name);
+            });
+            
+            appState.activeSubtitle = subtitle;
+        }
+        
+        // Atualiza visual das opções
+        updateSubtitleUI();
+        
+        // Fecha o menu
+        subtitleMenu.classList.add('hidden');
+        
+        // Sincroniza com outros membros da party se for mestre
+        if (appState.isMaster && appState.currentParty) {
+            appState.socket.emit('party:action', {
+                type: 'SUBTITLE_CHANGE',
+                subtitle: subtitle
+            });
+        }
+    }
+    
+    function clearVideoSubtitles() {
+        const { video } = DOMElements.player;
+        
+        // Remove todas as tracks de legenda existentes
+        const tracks = video.querySelectorAll('track');
+        tracks.forEach(track => track.remove());
+    }
+    
+    function updateSubtitleUI() {
+        const { subtitleOptions } = DOMElements.player;
+        
+        // Atualiza visual das opções (destacar ativa)
+        const options = subtitleOptions.querySelectorAll('.subtitle-option');
+        options.forEach(option => {
+            const isActive = appState.activeSubtitle?.language === option.dataset.lang ||
+                           (!appState.activeSubtitle && option.dataset.lang === 'off');
+            
+            option.classList.toggle('bg-blue-600', isActive);
+            option.classList.toggle('hover:bg-gray-700', !isActive);
+            option.classList.toggle('hover:bg-blue-700', isActive);
+        });
+    }
+
     // --- LÓGICA DO PLAYER ---
     function openPlayer(movie) {
         const { modal, video, title } = DOMElements.player;
@@ -283,6 +397,9 @@ document.addEventListener('DOMContentLoaded', () => {
         modal.classList.remove('hidden');
         title.textContent = movie.title;
         appState.currentMovieId = movie.id;
+        
+        // Configura legendas disponíveis
+        setupSubtitles(movie);
 
         if (appState.isMaster && appState.currentParty?.currentMovie?.id !== movie.id) {
             console.log('Mestre mudando filme para party');
@@ -407,7 +524,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (appState.hls) appState.hls.destroy();
         DOMElements.player.video.src = '';
         clearInterval(appState.syncInterval);
+        clearVideoSubtitles();
         appState.currentMovieId = null;
+        appState.currentSubtitles = [];
+        appState.activeSubtitle = null;
+        DOMElements.player.subtitleMenu.classList.add('hidden');
     }
     
     // --- EVENT LISTENERS GERAIS ---
@@ -433,6 +554,20 @@ document.addEventListener('DOMContentLoaded', () => {
         };
         
         player.backButton.onclick = closePlayer;
+        
+        // Controles de legenda
+        DOMElements.player.subtitleButton.onclick = () => {
+            const { subtitleMenu } = DOMElements.player;
+            subtitleMenu.classList.toggle('hidden');
+        };
+        
+        // Fecha menu de legendas ao clicar fora
+        document.addEventListener('click', (e) => {
+            const { subtitleButton, subtitleMenu } = DOMElements.player;
+            if (!subtitleButton.contains(e.target) && !subtitleMenu.contains(e.target)) {
+                subtitleMenu.classList.add('hidden');
+            }
+        });
         
         // Adiciona clique no vídeo para play/pause quando necessário
         DOMElements.player.video.onclick = (e) => {
