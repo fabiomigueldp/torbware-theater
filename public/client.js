@@ -203,9 +203,18 @@ document.addEventListener('DOMContentLoaded', () => {
         movies.forEach(movie => {
             const card = document.createElement('div');
             card.className = 'group relative video-card transition-transform duration-300 cursor-pointer';
+            
+            // Sistema inteligente de posters
+            const posterUrl = getPosterUrl(movie, 'medium');
+            const posterAlt = `Poster de ${movie.title}`;
+            
             card.innerHTML = `
                 <div class="bg-gray-800 rounded-lg overflow-hidden aspect-[2/3] relative">
-                    <img src="/library/${movie.id}${movie.poster_path}" alt="${movie.title}" class="w-full h-full object-cover" loading="lazy">
+                    <img src="${posterUrl}" 
+                         alt="${posterAlt}" 
+                         class="w-full h-full object-cover transition-opacity duration-300" 
+                         loading="lazy"
+                         onerror="handlePosterError(this, '${movie.id}')">
                     <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
                         <svg class="w-20 h-20 text-white/80 drop-shadow-lg" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
                     </div>
@@ -596,11 +605,134 @@ document.addEventListener('DOMContentLoaded', () => {
 
             appState.currentParty = null;
             appState.isMaster = false;
-            closePlayer();
-            renderPartyUI();
-            loadLibrary(); // Volta para a tela da livraria
         };
     }
+
+    // === SISTEMA AVANÇADO DE POSTERS ===
+    
+    /**
+     * Obtém URL do poster com fallback inteligente
+     * @param {Object} movie - Objeto do filme
+     * @param {string} size - Tamanho desejado (thumbnail, medium, large)
+     * @returns {string} URL do poster
+     */
+    function getPosterUrl(movie, size = 'medium') {
+        const movieId = movie.id;
+        
+        // 1. Tentar poster específico do tamanho
+        if (movie.posters && movie.posters[size]) {
+            return `/library/${movieId}${movie.posters[size]}`;
+        }
+        
+        // 2. Fallback para outros tamanhos
+        const fallbackSizes = {
+            'thumbnail': ['medium', 'large'],
+            'medium': ['large', 'thumbnail'],
+            'large': ['medium', 'thumbnail']
+        };
+        
+        if (movie.posters) {
+            for (const fallbackSize of fallbackSizes[size] || []) {
+                if (movie.posters[fallbackSize]) {
+                    return `/library/${movieId}${movie.posters[fallbackSize]}`;
+                }
+            }
+        }
+        
+        // 3. Fallback para poster.png padrão
+        if (movie.poster_path) {
+            return `/library/${movieId}${movie.poster_path}`;
+        }
+        
+        // 4. Último recurso - placeholder genérico
+        return `/placeholder-poster.png`;
+    }
+    
+    /**
+     * Manipula erros de carregamento de poster
+     * @param {HTMLImageElement} img - Elemento img que falhou
+     * @param {string} movieId - ID do filme
+     */
+    function handlePosterError(img, movieId) {
+        // Evitar loop infinito
+        if (img.dataset.errorHandled) return;
+        img.dataset.errorHandled = 'true';
+        
+        // Tentar fallbacks
+        const currentSrc = img.src;
+        
+        // Se é um poster específico, tentar poster.png
+        if (currentSrc.includes('/posters/')) {
+            img.src = `/library/${movieId}/poster.png`;
+            return;
+        }
+        
+        // Se poster.png falhou, usar placeholder genérico
+        if (currentSrc.includes('/poster.png')) {
+            img.src = `/placeholder-poster.png`;
+            return;
+        }
+        
+        // Último recurso - criar placeholder inline
+        img.style.display = 'none';
+        const placeholder = createInlinePlaceholder(img.alt || 'Filme');
+        img.parentNode.insertBefore(placeholder, img);
+    }
+    
+    /**
+     * Cria placeholder inline quando todas as imagens falharam
+     * @param {string} title - Título do filme
+     * @returns {HTMLElement} Elemento placeholder
+     */
+    function createInlinePlaceholder(title) {
+        const placeholder = document.createElement('div');
+        placeholder.className = 'w-full h-full bg-gradient-to-br from-gray-700 to-gray-900 flex flex-col items-center justify-center text-white text-center p-4';
+        
+        // Ícone de filme
+        placeholder.innerHTML = `
+            <svg class="w-16 h-16 mb-4 opacity-50" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z"/>
+            </svg>
+            <span class="text-sm font-medium">${title.substring(0, 30)}${title.length > 30 ? '...' : ''}</span>
+        `;
+        
+        return placeholder;
+    }
+    
+    // Precarregar placeholder genérico
+    function createGenericPlaceholder() {
+        const canvas = document.createElement('canvas');
+        canvas.width = 342;
+        canvas.height = 513;
+        const ctx = canvas.getContext('2d');
+        
+        // Gradiente
+        const gradient = ctx.createLinearGradient(0, 0, 0, 513);
+        gradient.addColorStop(0, '#4a5568');
+        gradient.addColorStop(1, '#2d3748');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, 342, 513);
+        
+        // Ícone
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '16px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('🎬', 171, 250);
+        ctx.fillText('Poster não disponível', 171, 280);
+        
+        return canvas.toDataURL();
+    }
+    
+    // Criar placeholder genérico no carregamento da página
+    window.addEventListener('load', () => {
+        const placeholderImg = document.createElement('img');
+        placeholderImg.src = createGenericPlaceholder();
+        placeholderImg.style.display = 'none';
+        placeholderImg.id = 'generic-placeholder';
+        document.body.appendChild(placeholderImg);
+    });
+
+    // === FIM SISTEMA DE POSTERS ===
 
     // --- PONTO DE ENTRADA ---
     init();

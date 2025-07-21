@@ -27,6 +27,18 @@ const appState = {
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../../public')));
+
+// Middleware otimizado para posters com cache
+app.use('/library/:movieId/posters', (req, res, next) => {
+    // Cache headers para posters (1 hora)
+    res.set({
+        'Cache-Control': 'public, max-age=3600',
+        'Access-Control-Allow-Origin': '*',
+        'Vary': 'Accept-Encoding'
+    });
+    next();
+});
+
 app.use('/library', express.static(path.join(__dirname, '../../library')));
 app.use('/api', apiRoutes(io));
 

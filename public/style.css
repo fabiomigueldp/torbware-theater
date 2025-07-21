@@ -4,6 +4,8 @@ body {
     font-family: 'Inter', sans-serif;
 }
 
+/* === SISTEMA AVANÇADO DE POSTERS === */
+
 .video-card {
     transition: transform 0.3s ease-in-out;
 }
@@ -11,6 +13,72 @@ body {
 .video-card:hover { 
     transform: scale(1.05);
 }
+
+/* Animação suave para carregamento de posters */
+.video-card img {
+    transition: opacity 0.3s ease-in-out;
+}
+
+.video-card img[data-loading="true"] {
+    opacity: 0.7;
+}
+
+/* Placeholder para posters */
+.poster-placeholder {
+    background: linear-gradient(135deg, #4a5568 0%, #2d3748 100%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    text-align: center;
+    padding: 1rem;
+}
+
+.poster-placeholder svg {
+    opacity: 0.6;
+    margin-bottom: 0.5rem;
+}
+
+.poster-placeholder span {
+    font-size: 0.875rem;
+    font-weight: 500;
+    opacity: 0.8;
+}
+
+/* Loading state para posters */
+.poster-loading {
+    background: linear-gradient(-45deg, #4a5568, #718096, #4a5568, #718096);
+    background-size: 400% 400%;
+    animation: posterShimmer 2s ease-in-out infinite;
+}
+
+@keyframes posterShimmer {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+/* Otimização para diferentes tamanhos de tela */
+@media (max-width: 640px) {
+    .video-card {
+        transform: none;
+    }
+    
+    .video-card:hover {
+        transform: scale(1.02);
+    }
+}
+
+/* High DPI / Retina display optimization */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+    .video-card img {
+        image-rendering: -webkit-optimize-contrast;
+        image-rendering: optimizeQuality;
+    }
+}
+
+/* === FIM SISTEMA DE POSTERS === */
 
 /* Scrollbar personalizado para listas */
 .overflow-y-auto::-webkit-scrollbar {

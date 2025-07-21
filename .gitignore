@@ -1,0 +1,96 @@
+# ----------------------------
+# Configurações de sistema e IDE
+# ----------------------------
+.vscode/
+.idea/
+*.suo
+*.user
+*.swp
+*.DS_Store
+
+# ----------------------------
+# Ambientes virtuais Python
+# ----------------------------
+venv/
+.venv/
+worker/venv/
+worker/.venv/
+env/
+ENV/
+
+# ----------------------------
+# Arquivos de cache e bytecode Python
+# ----------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+
+# ----------------------------
+# Logs, relatórios de cobertura e testes
+# ----------------------------
+*.log
+*.out
+coverage/
+htmlcov/
+.nox/
+pytest_cache/
+.pytest_cache/
+
+# ----------------------------
+# Dependências
+# ----------------------------
+# Node
+node_modules/
+server/node_modules/
+# Docker
+docker-compose.override.yml
+*.tgz
+
+# ----------------------------
+# Pastas e arquivos temporários
+# ----------------------------
+tmp/
+library/
+*.tmp
+*.temp
+
+# ----------------------------
+# Arquivos de ambiente e chaves
+# ----------------------------
+.env
+server/.env
+worker/.env
+*.env.local
+*.env.*.local
+
+# ----------------------------
+# Build e artefatos
+# ----------------------------
+dist/
+build/
+public/build/
+public/dist/
+
+# ----------------------------
+# Artefatos de container e sistema
+# ----------------------------
+*.pid
+*.seed
+*.pid.lock
+docker-compose*.yml
+Dockerfile
+
+# ----------------------------
+# Arquivos de sistema operacional
+# ----------------------------
+Thumbs.db
+ehthumbs.db
+Icon?
+desktop.ini
+
+# ----------------------------
+# Outros
+# ----------------------------
+*.sqlite3
+*.db
+*.cache

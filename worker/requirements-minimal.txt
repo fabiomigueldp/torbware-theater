@@ -6,5 +6,4 @@ tmdbv3api
 subliminal
 pysrt
 chardet
-ffsubsync
-Pillow>=9.0.0
+# ffsubsync - opcional, para sincronização automática
