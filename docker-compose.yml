@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: torbware_theater
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./library:/app/library
+      - ./tmp:/app/tmp
+      - ./server:/app/server
+      - ./worker:/app/worker
+      - ./public:/app/public
+    environment:
+      - TMDB_API_KEY=${TMDB_API_KEY}
