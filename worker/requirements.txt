@@ -1,0 +1,5 @@
+requests
+python-magic-bin==0.4.14
+patool
+python-dotenv
+tmdbv3api

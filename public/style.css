@@ -1,0 +1,36 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+body { 
+    font-family: 'Inter', sans-serif;
+}
+
+.video-card {
+    transition: transform 0.3s ease-in-out;
+}
+
+.video-card:hover { 
+    transform: scale(1.05);
+}
+
+/* Scrollbar personalizado para listas */
+.overflow-y-auto::-webkit-scrollbar {
+    width: 6px;
+}
+.overflow-y-auto::-webkit-scrollbar-track {
+    background: transparent;
+}
+.overflow-y-auto::-webkit-scrollbar-thumb {
+    background: #4a5568;
+    border-radius: 3px;
+}
+.overflow-y-auto::-webkit-scrollbar-thumb:hover {
+    background: #718096;
+}
+
+/* Esconde os controles padrão do vídeo quando em modo slave */
+.slave-mode::-webkit-media-controls {
+    display: none !important;
+}
+.slave-mode {
+    pointer-events: none;
+}
