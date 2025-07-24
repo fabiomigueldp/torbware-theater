@@ -14,7 +14,12 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: '*',
+    methods: ['GET', 'POST'],
+    allowedHeaders: ['*'],
+    credentials: false
   },
+  allowEIO3: true,
+  transports: ['websocket', 'polling']
 });
 
 // --- ESTADO DO SERVIDOR (Em memória, para simplicidade) ---
@@ -24,7 +29,20 @@ const appState = {
 };
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['*'],
+  credentials: false
+}));
+
+// Middleware de log para debug de conexões externas
+app.use((req, res, next) => {
+  const clientIP = req.headers['x-forwarded-for'] || req.connection.remoteAddress || req.socket.remoteAddress;
+  console.log(`📡 ${req.method} ${req.url} - IP: ${clientIP} - User-Agent: ${req.headers['user-agent']?.substring(0, 50)}...`);
+  next();
+});
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../../public')));
 
@@ -55,11 +73,14 @@ app.use('/api/subtitles', (req, res, next) => {
 
 // --- LÓGICA DE GERENCIAMENTO DE PARTIES ---
 io.on('connection', (socket) => {
-    console.log(`Cliente conectado: ${socket.id}`);
+    const clientIP = socket.handshake.headers['x-forwarded-for'] || socket.handshake.address;
+    console.log(`🔌 Cliente conectado: ${socket.id} - IP: ${clientIP}`);
 
     // 1. Registro do Usuário
     const username = socket.handshake.auth.username || 'Anônimo';
     appState.users[socket.id] = { id: socket.id, username, partyId: null };
+    
+    console.log(`👤 Usuário registrado: ${username} (${socket.id})`);
     
     // Envia o estado atual das parties para o novo usuário
     socket.emit('app:state', { parties: appState.parties });
@@ -167,14 +188,18 @@ io.on('connection', (socket) => {
 
     // 4. Desconexão
     socket.on('disconnect', () => {
-        console.log(`Cliente desconectado: ${socket.id}`);
+        const clientIP = socket.handshake.headers['x-forwarded-for'] || socket.handshake.address;
+        console.log(`🔌 Cliente desconectado: ${socket.id} - IP: ${clientIP}`);
         // Emite o evento de 'leave' para limpar o estado caso o usuário estivesse em uma party
         socket.emit('party:leave');
         delete appState.users[socket.id];
     });
 });
 
-server.listen(PORT, () => {
-  console.log(`Servidor rodando na porta ${PORT}`);
-  console.log(`Acesse em http://localhost:${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Servidor rodando na porta ${PORT}`);
+  console.log(`📍 Acesso local: http://localhost:${PORT}`);
+  console.log(`🌐 Acesso na rede: http://0.0.0.0:${PORT}`);
+  console.log(`📱 IP da máquina: Verifique com 'ipconfig' no Windows`);
+  console.log(`✅ Servidor configurado para aceitar conexões externas`);
 });

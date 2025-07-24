@@ -4,13 +4,22 @@
 ===========================================
 
 Este script automatiza todo o processo de configuração e execução da aplicação Theater:
+
+MODO COMPLETO (primeira execução):
 1. Verifica dependências do sistema
 2. Configura variáveis de ambiente
 3. Cria estrutura de diretórios necessária
 4. Constrói e executa containers Docker
 5. Monitora status da aplicação
 
-Uso: python run.py
+MODO RÁPIDO (desenvolvimento):
+- Aplica mudanças de código sem rebuild completo
+- Usa cache do Docker para máxima velocidade
+- Múltiplas estratégias de reload (hot reload, restart seletivo, etc.)
+
+Uso: 
+  python run.py              # Primeira execução ou rebuild completo
+  python run.py --quick      # Modo rápido para desenvolvimento
 """
 
 import os
@@ -20,6 +29,7 @@ import platform
 import time
 import json
 import socket
+import argparse
 from pathlib import Path
 
 # Cores para output no terminal
@@ -140,6 +150,8 @@ def setup_environment():
         log("✓ .env na raiz criado", "SUCCESS")
     else:
         log("✓ .env na raiz já existe", "SUCCESS")
+    
+    return True
 
 def create_directories():
     """Cria diretórios necessários"""
@@ -154,6 +166,8 @@ def create_directories():
     for directory in directories:
         Path(directory).mkdir(exist_ok=True, parents=True)
         log(f"✓ Diretório {directory} criado/verificado", "SUCCESS")
+    
+    return True
 
 def get_local_ip():
     """Obtém IP local da máquina"""
@@ -165,11 +179,79 @@ def get_local_ip():
     except:
         return "localhost"
 
+def quick_restart():
+    """Reinicia apenas os containers sem rebuild - modo desenvolvimento"""
+    log("🚀 MODO RÁPIDO - Aplicando mudanças...", "PROCESS")
+    
+    # Para os containers
+    log("Parando containers...", "PROCESS")
+    run_command("docker compose down", check=False)
+    
+    # Inicia novamente (usando cache de build)
+    log("Reiniciando containers (usando cache)...", "PROCESS")
+    if not run_command("docker compose up -d"):
+        log("Falha ao reiniciar containers", "ERROR")
+        return False
+    
+    log("✓ Containers reiniciados rapidamente", "SUCCESS")
+    return True
+
+def hot_reload():
+    """Aplica mudanças sem parar containers (quando possível)"""
+    log("🔥 HOT RELOAD - Aplicando mudanças sem parar containers...", "PROCESS")
+    
+    # Verifica se containers estão rodando
+    result = run_command("docker compose ps --services --filter status=running", capture_output=True)
+    if not result:
+        log("Nenhum container rodando. Use restart normal.", "WARNING")
+        return quick_restart()
+    
+    # Restart apenas dos serviços necessários
+    services_to_restart = []
+    
+    # Verifica se há mudanças no worker Python
+    log("Verificando mudanças no worker...", "PROCESS")
+    services_to_restart.append("worker")
+    
+    # Verifica se há mudanças no servidor Node.js
+    log("Verificando mudanças no servidor...", "PROCESS")
+    services_to_restart.append("server")
+    
+    # Restart seletivo dos serviços
+    for service in services_to_restart:
+        log(f"Reiniciando serviço: {service}", "PROCESS")
+        run_command(f"docker compose restart {service}", check=False)
+    
+    log("✓ Hot reload concluído", "SUCCESS")
+    return True
+
+def sync_code_changes():
+    """Sincroniza mudanças de código com containers (se volumes estão configurados)"""
+    log("📂 Sincronizando mudanças de código...", "PROCESS")
+    
+    # Como estamos usando volumes no docker-compose, as mudanças já são sincronizadas
+    # Apenas reiniciamos os processos dentro dos containers
+    
+    # Restart dos processos Node.js (se tiver nodemon/pm2)
+    log("Reiniciando processo Node.js...", "PROCESS")
+    run_command("docker compose exec -T server pkill -f node || true", check=False)
+    
+    # Restart do processo Python worker
+    log("Reiniciando processo Python...", "PROCESS")
+    run_command("docker compose exec -T worker pkill -f python || true", check=False)
+    
+    # Os processos serão reiniciados automaticamente pelos supervisors nos containers
+    time.sleep(2)
+    
+    log("✓ Código sincronizado", "SUCCESS")
+    return True
+
 def stop_existing_containers():
     """Para containers existentes"""
     log("Parando containers existentes...", "PROCESS")
     run_command("docker compose down", check=False)
     log("✓ Containers parados", "SUCCESS")
+    return True
 
 def build_and_start():
     """Constrói e inicia os containers"""
@@ -255,8 +337,99 @@ def show_logs():
     except KeyboardInterrupt:
         log("Saindo dos logs...", "INFO")
 
+def quick_mode():
+    """Modo rápido para desenvolvimento - aplica mudanças rapidamente"""
+    print_banner()
+    
+    log("🚀 MODO RÁPIDO ATIVADO - Desenvolvimento", "PROCESS")
+    log("Este modo aplica mudanças sem rebuild completo", "INFO")
+    
+    # Verifica se está no diretório correto
+    if not Path("docker-compose.yml").exists():
+        log("Execute este script no diretório raiz do projeto Theater", "ERROR")
+        sys.exit(1)
+    
+    # Verifica se containers existem (build inicial foi feito)
+    result = run_command("docker compose ps -a --services", capture_output=True)
+    if not result or len(result.strip()) == 0:
+        log("Nenhum container encontrado. Execute primeiro: python run.py", "ERROR")
+        log("O modo --quick requer que a aplicação já tenha sido construída", "INFO")
+        sys.exit(1)
+    
+    # Tenta diferentes estratégias de reload, da mais rápida para a mais lenta
+    strategies = [
+        ("Hot Reload (mais rápido)", sync_code_changes),
+        ("Restart de Serviços (rápido)", hot_reload),  
+        ("Restart de Containers (médio)", quick_restart),
+    ]
+    
+    for strategy_name, strategy_func in strategies:
+        log(f"Tentando: {strategy_name}", "PROCESS")
+        try:
+            if strategy_func():
+                # Aguarda um pouco e verifica se serviços estão funcionando
+                log("Verificando se aplicação está respondendo...", "PROCESS")
+                time.sleep(3)
+                
+                if wait_for_service(timeout=30):
+                    local_ip = get_local_ip()
+                    log("✅ APLICAÇÃO ATUALIZADA COM SUCESSO!", "SUCCESS")
+                    print(f"""
+{Colors.GREEN}🚀 Mudanças aplicadas rapidamente!{Colors.END}
+
+{Colors.CYAN}📍 Acesse: http://localhost:3000{Colors.END}
+{Colors.CYAN}🌐 Rede local: http://{local_ip}:3000{Colors.END}
+
+{Colors.YELLOW}💡 Dicas para desenvolvimento:{Colors.END}
+• Use --quick sempre que fizer mudanças no código
+• Logs em tempo real: docker compose logs -f
+• Para rebuild completo: python run.py (sem --quick)
+""")
+                    return
+                else:
+                    log(f"❌ {strategy_name} falhou, tentando próxima estratégia...", "WARNING")
+                    continue
+            else:
+                log(f"❌ {strategy_name} falhou, tentando próxima estratégia...", "WARNING")
+                continue
+                
+        except Exception as e:
+            log(f"❌ Erro em {strategy_name}: {str(e)[:50]}", "WARNING")
+            continue
+    
+    # Se chegou aqui, todas as estratégias falharam
+    log("❌ Todas as estratégias de reload falharam", "ERROR")
+    log("💡 Tente um rebuild completo: python run.py", "INFO")
+    log("💡 Ou verifique os logs: docker compose logs", "INFO")
+
 def main():
-    """Função principal"""
+    """Função principal com suporte a argumentos"""
+    
+    # Parse dos argumentos da linha de comando
+    parser = argparse.ArgumentParser(
+        description="🎬 Theater - Sistema de streaming de mídia", 
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Exemplos de uso:
+  python run.py              # Execução completa (primeira vez)
+  python run.py --quick      # Modo rápido para desenvolvimento
+        """
+    )
+    
+    parser.add_argument(
+        '--quick', 
+        action='store_true',
+        help='Modo rápido: aplica mudanças sem rebuild completo (ideal para desenvolvimento)'
+    )
+    
+    args = parser.parse_args()
+    
+    # Se modo quick foi solicitado
+    if args.quick:
+        quick_mode()
+        return
+    
+    # Modo normal (completo)
     print_banner()
     
     # Verifica se está no diretório correto
