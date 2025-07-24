@@ -297,11 +297,12 @@ def main():
                 
                 # Acesso seguro aos atributos dos detalhes
                 title = getattr(movie_details, 'title', successful_term)
+                original_title = getattr(movie_details, 'original_title', title)  # Título original para busca de legendas
                 overview = getattr(movie_details, 'overview', 'Descrição não disponível')
                 release_date = getattr(movie_details, 'release_date', '')
                 poster_path = getattr(movie_details, 'poster_path', None)
                 
-                print(f"Metadados extraídos - Título: {title}, Data: {release_date}")
+                print(f"Metadados extraídos - Título: {title}, Título Original: {original_title}, Data: {release_date}")
                 
             else:
                 raise Exception(f"Filme não encontrado no TMDB para '{search_term}'.")
@@ -310,6 +311,7 @@ def main():
             print(f"Erro ao buscar metadados: {tmdb_error}")
             # Fallback com dados mínimos baseados no nome do arquivo
             title = search_term
+            original_title = search_term  # Usar o mesmo título como original no fallback
             overview = 'Descrição não disponível'
             release_date = ''
             poster_path = None
@@ -327,6 +329,7 @@ def main():
         movie_info = {
             'id': movie_id,
             'title': title,
+            'original_title': original_title,  # Título original para busca de legendas
             'release_date': release_date,
             'poster_path': poster_path  # Obtido do TMDB
         }
@@ -584,6 +587,7 @@ def main():
         metadata = {
             "id": movie_id,
             "title": title,
+            "original_title": original_title,  # Incluir título original
             "overview": overview,
             "release_date": release_date,
             "poster_path": movie_info.get('poster_path', "/poster.png"),  # Usar poster otimizado
