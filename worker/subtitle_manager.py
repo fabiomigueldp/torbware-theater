@@ -90,12 +90,15 @@ class SubtitleManager:
         languages = {Language('eng'), Language('por')}
         self.report_progress("Procurando legendas online...", 30)
 
-        found_subtitles = download_best_subtitles([video], languages)
+        # Excluir provedores problemáticos
+        providers = ['opensubtitles', 'podnapisi', 'addic7ed', 'gestdown', 'napiprojekt', 'subtitulamos', 'tvsubtitles']
+
+        found_subtitles = download_best_subtitles([video], languages, providers=providers)
 
         processed_subs = {}
         if found_subtitles:
-            self.report_progress(f"Processando {len(found_subtitles[video])} legenda(s)...", 50)
-            for sub in found_subtitles[video]:
+            self.report_progress(f"Processando {len(found_subtitles.get(video, []))} legenda(s)...", 50)
+            for sub in found_subtitles.get(video, []):
                 lang_code = self._normalize_language_code(sub.language)
                 save_subtitles(video, [sub], directory=self.temp_folder)
                 temp_path = self._get_subtitle_temp_path(video, sub)
@@ -103,11 +106,15 @@ class SubtitleManager:
                     final_subtitle = self._process_subtitle_file(temp_path, lang_code, video_file)
                     if final_subtitle:
                         processed_subs[lang_code] = final_subtitle
+                        if lang_code == 'pt-BR':
+                            self.report_progress("✅ Legenda em português baixada com sucesso.", 60)
 
         if 'pt-BR' not in processed_subs:
+            self.report_progress("Nenhuma legenda em português encontrada, tentando fallback...", 65)
             pt_br_fallback = self._force_pt_br_with_podnapisi(video)
             if pt_br_fallback:
                 processed_subs['pt-BR'] = pt_br_fallback[0]
+                self.report_progress("✅ Legenda em português baixada com sucesso via fallback.", 70)
 
         # Ordenar: pt-BR, en, outros
         final_list = sorted(processed_subs.values(), key=lambda x: (
