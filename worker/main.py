@@ -19,7 +19,7 @@ if not config.TMDB_API_KEY:
 
 tmdb = TMDb()
 tmdb.api_key = config.TMDB_API_KEY
-tmdb.language = 'pt-BR'
+tmdb.language = 'en-US'
 
 # --- FUNÇÕES HELPER ---
 def update_status(api_url, job_id, status, progress=None, message=None):
@@ -295,14 +295,14 @@ def main():
                 movie_details = movie.details(movie_id)
                 print(f"Detalhes obtidos: {type(movie_details)}")
                 
-                # Acesso seguro aos atributos dos detalhes
-                title = getattr(movie_details, 'title', successful_term)
-                original_title = getattr(movie_details, 'original_title', title)  # Título original para busca de legendas
-                overview = getattr(movie_details, 'overview', 'Descrição não disponível')
+                # Acesso seguro aos atributos dos detalhes - PADRONIZADO PARA INGLÊS
+                final_title = getattr(movie_details, 'original_title', successful_term)
+                overview = getattr(movie_details, 'overview', 'Description not available')
                 release_date = getattr(movie_details, 'release_date', '')
                 poster_path = getattr(movie_details, 'poster_path', None)
+                year = int(release_date[:4]) if release_date else None
                 
-                print(f"Metadados extraídos - Título: {title}, Título Original: {original_title}, Data: {release_date}")
+                print(f"Metadados extraídos - Título Final: {final_title}, Data: {release_date}, Ano: {year}")
                 
             else:
                 raise Exception(f"Filme não encontrado no TMDB para '{search_term}'.")
@@ -310,17 +310,17 @@ def main():
         except Exception as tmdb_error:
             print(f"Erro ao buscar metadados: {tmdb_error}")
             # Fallback com dados mínimos baseados no nome do arquivo
-            title = search_term
-            original_title = search_term  # Usar o mesmo título como original no fallback
+            final_title = search_term
             overview = 'Descrição não disponível'
             release_date = ''
+            year = None
             poster_path = None
-            movie_id = abs(hash(search_term)) % 1000000  # ID único baseado no hash do nome
-            print(f"Usando fallback - ID: {movie_id}, Título: {title}")
+            movie_id = abs(hash(final_title)) % 1000000  # ID único baseado no hash do nome
+            print(f"Usando fallback - ID: {movie_id}, Título: {final_title}")
         
         movie_library_path = os.path.join(config.LIBRARY_ROOT, str(movie_id))
         if os.path.exists(movie_library_path):
-            raise Exception(f"Filme '{title}' já existe na biblioteca.")
+            raise Exception(f"Filme '{final_title}' já existe na biblioteca.")
         
         hls_dir = os.path.join(movie_library_path, "hls")
         os.makedirs(hls_dir)
@@ -328,10 +328,12 @@ def main():
         # Criar movie_info inicial para o sistema de posters
         movie_info = {
             'id': movie_id,
-            'title': title,
-            'original_title': original_title,  # Título original para busca de legendas
+            'title': final_title,
+            'original_title': final_title,
             'release_date': release_date,
-            'poster_path': poster_path  # Obtido do TMDB
+            'year': year,
+            'poster_path': poster_path,
+            'video_file': video_file
         }
         
         # --- Download e Processamento de Posters (Sistema Avançado) ---
@@ -586,14 +588,15 @@ def main():
         # 8. Salvar Metadados Finais
         metadata = {
             "id": movie_id,
-            "title": title,
-            "original_title": original_title,  # Incluir título original
+            "title": final_title,
+            "original_title": final_title,
             "overview": overview,
             "release_date": release_date,
-            "poster_path": movie_info.get('poster_path', "/poster.png"),  # Usar poster otimizado
-            "posters": movie_info.get('posters', {}),  # Múltiplos tamanhos
+            "year": year,
+            "poster_path": movie_info.get('poster_path', "/poster.png"),
+            "posters": movie_info.get('posters', {}),
             "hls_playlist": "/hls/playlist.m3u8",
-            "subtitles": verified_subtitles  # Usa apenas legendas verificadas
+            "subtitles": verified_subtitles
         }
         
         metadata_path = os.path.join(movie_library_path, "metadata.json")
