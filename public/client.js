@@ -204,9 +204,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const card = document.createElement('div');
             card.className = 'group relative video-card transition-transform duration-300 cursor-pointer';
             
-            // Sistema inteligente de posters
+            // Usar título original para exibição, com fallback para o título normal
+            const displayTitle = movie.original_title || movie.title;
+
             const posterUrl = getPosterUrl(movie, 'medium');
-            const posterAlt = `Poster de ${movie.title}`;
+            const posterAlt = `Poster de ${displayTitle}`;
             
             card.innerHTML = `
                 <div class="bg-gray-800 rounded-lg overflow-hidden aspect-[2/3] relative">
@@ -219,7 +221,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         <svg class="w-20 h-20 text-white/80 drop-shadow-lg" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
                     </div>
                 </div>
-                <div class="mt-3 text-left"><h3 class="font-bold text-white truncate">${movie.title}</h3></div>`;
+                <div class="mt-3 text-left"><h3 class="font-bold text-white truncate">${displayTitle}</h3></div>`;
             card.addEventListener('click', () => openPlayer(movie));
             grid.appendChild(card);
         });
@@ -388,8 +390,10 @@ document.addEventListener('DOMContentLoaded', () => {
     function openPlayer(movie) {
         const { modal, video, title } = DOMElements.player;
         
+        const displayTitle = movie.original_title || movie.title;
+
         console.log('openPlayer chamado:', {
-            movie: movie.title,
+            movie: displayTitle,
             movieId: movie.id,
             currentMovieId: appState.currentMovieId,
             currentParty: appState.currentParty,
@@ -404,7 +408,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         modal.classList.remove('hidden');
-        title.textContent = movie.title;
+        title.textContent = displayTitle;
         appState.currentMovieId = movie.id;
         
         // Configura legendas disponíveis

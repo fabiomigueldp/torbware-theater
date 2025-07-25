@@ -54,15 +54,18 @@ module.exports = (io) => {
                 const data = await fs.readFile(metadataPath, 'utf-8');
                 const movieData = JSON.parse(data);
                 
-                // Garantir que subtitles existe mesmo em metadados antigos
-                if (!movieData.subtitles) {
-                    movieData.subtitles = [];
-                }
+                // Garantir compatibilidade e dados consistentes
+                movieData.original_title = movieData.original_title || movieData.title;
+                movieData.subtitles = movieData.subtitles || [];
                 
                 moviesData.push(movieData);
             } catch (e) { /* Ignora pastas sem metadata ou o .gitkeep */ }
         }
-        res.json(moviesData.sort((a, b) => a.title.localeCompare(b.title)));
+        res.json(moviesData.sort((a, b) => {
+            const titleA = (a.original_title || a.title || '').toLowerCase();
+            const titleB = (b.original_title || b.title || '').toLowerCase();
+            return titleA.localeCompare(titleB);
+        }));
     } catch (error) {
         if (error.code === 'ENOENT') {
             await fs.mkdir(libraryPath, { recursive: true });

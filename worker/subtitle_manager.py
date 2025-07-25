@@ -16,7 +16,7 @@ try:
     FFSUBSYNC_AVAILABLE = True
 except ImportError:
     FFSUBSYNC_AVAILABLE = False
-    
+
 logger = logging.getLogger(__name__)
 
 class SubtitleManager:
@@ -26,182 +26,98 @@ class SubtitleManager:
         self.progress_callback = progress_callback
         self.subtitles_folder = os.path.join(movie_folder, 'subtitles')
         os.makedirs(self.subtitles_folder, exist_ok=True)
-        
-        # Cria um diretório temporário específico para este processamento
         self.temp_folder = tempfile.mkdtemp(prefix='subtitles_')
-        
+
     def report_progress(self, message, progress=None):
-        """Reporta progresso das legendas"""
         if self.progress_callback:
             self.progress_callback(f"Legendas: {message}", progress)
         logger.info(f"Legendas: {message}")
         print(f"Legendas: {message}")
-    
+
     def cleanup_temp(self):
-        """Limpa arquivos temporários"""
         try:
             if os.path.exists(self.temp_folder):
-                print(f"Limpando pasta temporária de legendas: {self.temp_folder}")
-                # Listar arquivos antes de apagar para debug
-                temp_files = os.listdir(self.temp_folder)
-                if temp_files:
-                    print(f"Arquivos a serem removidos: {temp_files}")
                 shutil.rmtree(self.temp_folder, ignore_errors=True)
         except Exception as e:
             print(f"Erro ao limpar arquivos temporários: {e}")
-            
-    def download_subtitles(self):
-        """Baixa legendas em inglês e português com retry"""
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                return self._download_subtitles_attempt()
-            except Exception as e:
-                self.report_progress(f"Tentativa {attempt + 1} falhou: {str(e)[:50]}")
-                if attempt == max_retries - 1:
-                    self.report_progress("Todas as tentativas de download falharam")
-                    return []
-                import time
-                time.sleep(2)  # Aguarda antes de tentar novamente
-        
-        return []
-    
-    def _download_subtitles_attempt(self):
-        """
-        Tentativa única de download usando a estratégia de "melhor legenda",
-        que é muito mais eficiente.
-        """
-        self.report_progress("Iniciando busca pelas melhores legendas", 10)
 
+    def _normalize_language_code(self, language) -> str:
+        lang_str = str(language).lower()
+        if 'pt' in lang_str or 'por' in lang_str or 'pb' in lang_str:
+            return 'pt-BR'
+        if 'en' in lang_str or 'eng' in lang_str:
+            return 'en'
+        return lang_str
+
+    def _force_pt_br_with_podnapisi(self, video) -> list:
+        self.report_progress("🇧🇷 PT-BR fallback ativado...", 70)
+        try:
+            from subliminal.providers.podnapisi import PodnapisiProvider
+            from subliminal.core import ProviderPool
+            
+            with ProviderPool(providers=[PodnapisiProvider]) as pool:
+                subtitles = pool.list_subtitles(video, {Language('por')})
+            
+            if subtitles:
+                self.report_progress(f"Encontrado {len(subtitles)} legendas PT-BR no Podnapisi.")
+                # Baixar a melhor legenda encontrada
+                best_pt_sub = subtitles[0]
+                save_subtitles(video, [best_pt_sub], directory=self.temp_folder)
+                temp_path = self._get_subtitle_temp_path(video, best_pt_sub)
+                if temp_path and os.path.exists(temp_path):
+                    return [self._process_subtitle_file(temp_path, 'pt-BR', video.name)]
+            return []
+        except Exception as e:
+            self.report_progress(f"Erro no fallback PT-BR: {e}")
+            return []
+
+    def download_subtitles(self):
         video_file = self.movie_info.get('video_file')
         if not video_file or not os.path.exists(video_file):
-            raise Exception("Arquivo de vídeo não encontrado para download de legendas")
+            raise Exception("Arquivo de vídeo não encontrado")
 
-        self.report_progress(f"Usando arquivo: {os.path.basename(video_file)}", 20)
-
-        # Configura o vídeo para o Subliminal
         video = Video.fromname(video_file)
-        
-        # ESTRATÉGIA OTIMIZADA: Usar apenas títulos em inglês/original para busca
-        # Prioridade: original_title (se diferente) > title (se parece inglês) > original_title (fallback)
-        
-        original_title = self.movie_info.get('original_title', '')
-        localized_title = self.movie_info.get('title', '')
-        
-        def is_likely_english(text):
-            """Verifica se o texto parece estar em inglês (heurística simples)"""
-            if not text:
-                return False
-            # Caracteres que indicam não-inglês
-            non_english_chars = ['ç', 'ã', 'õ', 'á', 'é', 'í', 'ó', 'ú', 'â', 'ê', 'î', 'ô', 'û', 'à', 'è', 'ì', 'ò', 'ù']
-            return not any(char in text.lower() for char in non_english_chars)
-        
-        # Decidir qual título usar para busca de legendas
-        if original_title and original_title != localized_title:
-            # Temos título original diferente - sempre preferir este
-            video.title = original_title
-            self.report_progress(f"Usando título original (inglês): '{video.title}'", 25)
-        elif localized_title and is_likely_english(localized_title):
-            # Título localizado parece estar em inglês
-            video.title = localized_title  
-            self.report_progress(f"Usando título (parece inglês): '{video.title}'", 25)
-        elif original_title:
-            # Fallback para original_title mesmo se igual ao localizado
-            video.title = original_title
-            self.report_progress(f"Usando título original (fallback): '{video.title}'", 25)
+        if self.movie_info.get('original_title'):
+            video.title = self.movie_info['original_title']
+            self.report_progress(f"Usando título original para busca: '{video.title}'", 25)
         else:
-            # Último recurso - usar título localizado
-            video.title = localized_title
-            self.report_progress(f"Usando título localizado (último recurso): '{video.title}'", 25)
+            video.title = self.movie_info.get('title')
+            self.report_progress(f"Usando título de fallback para busca: '{video.title}'", 25)
         
-        # Log da estratégia para debug
-        print(f"Debug títulos - Original: '{original_title}', Localizado: '{localized_title}', Escolhido: '{video.title}'")
-        
-        if self.movie_info.get('release_date'):
-            try:
-                video.year = int(self.movie_info['release_date'][:4])
-            except:
-                pass
+        if self.movie_info.get('year'):
+            video.year = self.movie_info['year']
 
-        # Define as linguagens desejadas (usando códigos ISO 639-3)
-        languages = {Language('eng'), Language('por', country='BR'), Language('por')}
+        languages = {Language('eng'), Language('por')}
+        self.report_progress("Procurando legendas online...", 30)
 
-        self.report_progress("Procurando as melhores legendas online...", 30)
+        found_subtitles = download_best_subtitles([video], languages)
 
-        # ESTRATÉGIA HÍBRIDA: Tentar download_best_subtitles primeiro, depois list_subtitles se necessário
-        # Isso garante que encontremos legendas em todos os idiomas, não apenas as "melhores"
-        try:
-            # Primeira tentativa: download_best_subtitles (mais rápido)
-            best_subtitles = download_best_subtitles([video], languages)
-            
-            found_subtitles = []
-            if best_subtitles and video in best_subtitles:
-                found_subtitles = best_subtitles[video]
-            
-            # Verificar se encontramos legendas em todos os idiomas desejados
-            found_languages = {str(sub.language) for sub in found_subtitles}
-            print(f"Idiomas encontrados via download_best_subtitles: {found_languages}")
-            
-            # Se não encontramos legendas em português, usar list_subtitles para busca mais ampla
-            has_portuguese = any('pt' in lang or 'por' in lang for lang in found_languages)
-            
-            if not has_portuguese:
-                print("🔍 Nenhuma legenda em português via download_best_subtitles, tentando list_subtitles...")
-                self.report_progress("Buscando mais legendas em português...", 35)
-                
-                try:
-                    from subliminal.core import ProviderPool
-                    
-                    # Usar list_subtitles para busca mais ampla
-                    with ProviderPool() as pool:
-                        all_subtitles = list(pool.list_subtitles(video, languages))
-                    
-                    print(f"Total de legendas encontradas via list_subtitles: {len(all_subtitles)}")
-                    
-                    # Filtrar legendas em português encontradas via list_subtitles
-                    portuguese_subs = [sub for sub in all_subtitles 
-                                     if 'pt' in str(sub.language) or 'por' in str(sub.language)]
-                    
-                    if portuguese_subs:
-                        print(f"✅ Encontrado {len(portuguese_subs)} legendas em português via list_subtitles!")
-                        # Adicionar apenas as melhores legendas em português à lista
-                        found_subtitles.extend(portuguese_subs[:2])  # Máximo 2 legendas PT
-                    else:
-                        print("⚠️ Nenhuma legenda em português encontrada mesmo com list_subtitles")
-                        
-                except Exception as list_error:
-                    print(f"Erro em list_subtitles: {list_error}")
-                    
-        except Exception as e:
-            self.report_progress(f"Erro ao buscar legendas: {str(e)[:50]}", 90)
-            return []
+        processed_subs = {}
+        if found_subtitles:
+            self.report_progress(f"Processando {len(found_subtitles[video])} legenda(s)...", 50)
+            for sub in found_subtitles[video]:
+                lang_code = self._normalize_language_code(sub.language)
+                save_subtitles(video, [sub], directory=self.temp_folder)
+                temp_path = self._get_subtitle_temp_path(video, sub)
+                if temp_path and os.path.exists(temp_path):
+                    final_subtitle = self._process_subtitle_file(temp_path, lang_code, video_file)
+                    if final_subtitle:
+                        processed_subs[lang_code] = final_subtitle
 
-        if not found_subtitles:
-            self.report_progress("Nenhuma legenda encontrada online", 90)
-            return []
+        if 'pt-BR' not in processed_subs:
+            pt_br_fallback = self._force_pt_br_with_podnapisi(video)
+            if pt_br_fallback:
+                processed_subs['pt-BR'] = pt_br_fallback[0]
 
-        # AGORA, o loop processará legendas em inglês E português
-        self.report_progress(f"Processando {len(found_subtitles)} legenda(s) encontrada(s)", 50)
-        
-        processed_subs = []
-        for subtitle in found_subtitles:
-            lang_code = self._get_language_code(subtitle.language)
-            self.report_progress(f"Processando legenda {lang_code}", 60)
-            
-            # Salva a legenda temporariamente para podermos processá-la
-            save_subtitles(video, [subtitle], directory=self.temp_folder)
-            temp_subtitle_path = self._get_subtitle_temp_path(video, subtitle)
+        # Ordenar: pt-BR, en, outros
+        final_list = sorted(processed_subs.values(), key=lambda x: (
+            x['language'] != 'pt-BR',
+            x['language'] != 'en',
+            x['language']
+        ))
 
-            if temp_subtitle_path and os.path.exists(temp_subtitle_path):
-                final_subtitle = self._process_subtitle_file(temp_subtitle_path, lang_code, video_file)
-                if final_subtitle:
-                    processed_subs.append(final_subtitle)
-                    self.report_progress(f"✓ Legenda criada: {final_subtitle['file']}")
-            else:
-                self.report_progress(f"✗ Falha ao salvar a legenda temporária para {lang_code}")
-
-        self.report_progress(f"Concluído: {len(processed_subs)} legendas processadas", 90)
-        return processed_subs
+        self.report_progress(f"Concluído: {len(final_list)} legendas processadas.", 90)
+        return final_list
 
     def _get_subtitle_temp_path(self, video, subtitle):
         """Constrói o caminho da legenda temporária salva"""
@@ -440,29 +356,6 @@ class SubtitleManager:
         """Converte timestamp SRT para formato WebVTT"""
         return str(srt_time).replace(',', '.')
     
-    def _get_language_code(self, language):
-        """Converte código de idioma do Babel para nosso padrão"""
-        # O objeto Language do babelfish tem propriedades alpha3 e alpha3
-        if hasattr(language, 'alpha3'):
-            if language.alpha3 == 'eng':
-                return 'en'
-            elif language.alpha3 == 'por':
-                # Verificar se é português brasileiro
-                if hasattr(language, 'country') and language.country:
-                    if str(language.country) == 'BR':
-                        return 'pt-BR'
-                return 'pt'
-        
-        # Fallback usando string representation
-        lang_str = str(language)
-        if lang_str == 'en':
-            return 'en'
-        elif lang_str == 'pt-BR':
-            return 'pt-BR'
-        elif lang_str == 'pt':
-            return 'pt'
-        
-        return lang_str  # Retorna como está se não conseguir mapear
     
     def _get_language_name(self, lang_code):
         """Retorna nome amigável do idioma"""
